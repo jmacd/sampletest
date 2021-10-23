@@ -9,11 +9,15 @@
 
   with  x_1<x_2,...<x_n  a purported set of n independent uniform [0,1)
   random variables sorted into increasing order.
-  See G. Marsaglia, Wai Wan Tsang and Jingbo Wong, J.Stat.Software, 2003.
+
+  See G. Marsaglia, Wai Wan Tsang and Jingbo Wong:
+  https://www.jstatsoft.org/article/view/v008i18
 */
 package kolmogorov
 
-import "math"
+import (
+	"math"
+)
 
 func K(n int, d float64) float64 {
 	// Omit the next two statements if you require >7 digit accuracy in the right tail.
@@ -62,7 +66,7 @@ func K(n int, d float64) float64 {
 			eQ -= 140
 		}
 	}
-	s *= math.Pow(10., float64(eQ))
+	s *= math.Pow(10, float64(eQ))
 	return s
 }
 
@@ -102,7 +106,7 @@ func mPower(A []float64, eA int, V []float64, eV *int, m, n int) {
 	if V[(m/2)*m+(m/2)] > 1e140 {
 		for i := 0; i < m*m; i++ {
 			V[i] = V[i] * 1e-140
-			*eV += 140
 		}
+		*eV += 140
 	}
 }

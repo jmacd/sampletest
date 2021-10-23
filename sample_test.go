@@ -2,7 +2,6 @@ package sampletest
 
 import (
 	"fmt"
-	"math"
 	"math/rand"
 	"sort"
 	"testing"
@@ -16,7 +15,7 @@ import (
 const (
 	repeats = 10
 	trials  = 1000
-	tosses  = 1000
+	tosses  = 10000
 
 	neglogprob = 3
 )
@@ -79,13 +78,10 @@ func TestSampling(t *testing.T) {
 
 	res := computeResults(newUniformProbTester(newSource(), prob).decision)
 
-	_ = kolmogorov.K
-
 	for i := 0; i < repeats; i++ {
 		tester("math.Float64", prob, res[i])
 	}
 
-	// tester("bits.ExpensiveLeadingZeros64", prob, func() bool {
 	// 	return bits.LeadingZeros64(uint64(sixtyThree())<<1) >= neglogprob
 	// })
 
@@ -118,17 +114,17 @@ func TestSampling(t *testing.T) {
 	// })
 }
 
-func tester(name string, prob float64, results trialResults) (float64, float64) {
+func tester(name string, prob float64, results trialResults) float64 {
 
 	dist := distuv.Binomial{
 		N: tosses,
 		P: prob,
 	}
-	sqrtTrials := math.Sqrt(trials)
 
-	// From Knuth 3.3.1 algorithm B, one-sample.
-	kPlus := 0.0
-	kMinus := 0.0
+	// Like Knuth 3.3.1 algorithm B, one-sample, but without the
+	// sqrt(trials) term, thus using the exact Kolmogorov
+	// distribution instead of K+ and K- like Knuth.
+	d := 0.0
 
 	for i := 0; i < trials; i++ {
 		val := results[i]
@@ -136,28 +132,14 @@ func tester(name string, prob float64, results trialResults) (float64, float64) 
 			i++ // Scanning past duplicates
 		}
 
-		if dPlus := (float64(i+1) / trials) - dist.CDF(float64(results[i])); dPlus > kPlus {
-			kPlus = dPlus
+		if dPlus := (float64(i+1) / trials) - dist.CDF(float64(results[i])); dPlus > d {
+			d = dPlus
 		}
-		if dMinus := dist.CDF(float64(results[i])) - (float64(i) / trials); dMinus > kMinus {
-			kMinus = dMinus
+		if dMinus := dist.CDF(float64(results[i])) - (float64(i) / trials); dMinus > d {
+			d = dMinus
 		}
 	}
 
-	kPlus *= sqrtTrials
-	kMinus *= sqrtTrials
-
-	kProb := func(s float64) float64 {
-		// Knuth 3.3.1 equation 27
-		return 1 - math.Exp(-2*s*s)*(1-(2*s)/(3*sqrtTrials))
-	}
-
-	maxK := kPlus
-	if maxK < kMinus {
-		maxK = kMinus
-	}
-
-	fmt.Println(name, "K-S single K+", kPlus, kProb(kPlus))
-	fmt.Println(name, "K-S single K-", kMinus, kProb(kMinus))
-	return kPlus, kMinus
+	fmt.Println(name, "K-S single D", d, kolmogorov.K(trials, d))
+	return d
 }
