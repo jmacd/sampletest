@@ -14,11 +14,9 @@ import (
 // K-S test
 
 const (
-	repeats = 7
-	trials  = 1000
-	tosses  = 100000
-
-	neglogprob = 7
+	repeats  = 10
+	trials   = 100
+	expected = 100
 )
 
 type uniformProbTester struct {
@@ -28,7 +26,9 @@ type uniformProbTester struct {
 
 type trialResults []int
 
-func computeResults(f func() bool) (r []trialResults) {
+func computeResults(prob float64, f func() bool) (r []trialResults) {
+	tosses := int(expected / prob)
+
 	for j := 0; j < repeats; j++ {
 		var results []int
 		for i := 0; i < trials; i++ {
@@ -63,10 +63,17 @@ func newSource() rand.Source {
 }
 
 func TestSampling(t *testing.T) {
+	for nlp := 0; nlp < 10; nlp++ {
+		testSampling(t, nlp)
+	}
+}
+
+func testSampling(t *testing.T, neglogprob int) {
 	prob := 1.0 / float64(uint64(1)<<neglogprob)
 
+	fmt.Printf("At probability 1-in-2**%d\n", neglogprob)
 	func() {
-		res := computeResults(newUniformProbTester(newSource(), prob).decision)
+		res := computeResults(prob, newUniformProbTester(newSource(), prob).decision)
 
 		var dvals []float64
 		for i := 0; i < repeats; i++ {
@@ -76,7 +83,7 @@ func TestSampling(t *testing.T) {
 	}()
 
 	run := func(name string, f func() bool) {
-		res := computeResults(f)
+		res := computeResults(prob, f)
 		var dvals []float64
 		for i := 0; i < repeats; i++ {
 			dvals = append(dvals, tester(prob, res[i]))
@@ -146,9 +153,30 @@ func TestSampling(t *testing.T) {
 			return false
 		})
 	}()
+
+	func() {
+		src := rand.New(newSource())
+		run("BiasedTrue", func() bool {
+			if src.Float64() < 0.01 {
+				return true
+			}
+			return bits.LeadingZeros64(uint64(src.Int63()<<1)) >= neglogprob
+		})
+	}()
+
+	func() {
+		src := rand.New(newSource())
+		run("BiasedFalse", func() bool {
+			if src.Float64() < 0.1 {
+				return false
+			}
+			return bits.LeadingZeros64(uint64(src.Int63()<<1)) >= neglogprob
+		})
+	}()
 }
 
 func tester(prob float64, results trialResults) float64 {
+	tosses := expected / prob
 
 	dist := distuv.Binomial{
 		N: tosses,
