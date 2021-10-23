@@ -2,6 +2,7 @@ package sampletest
 
 import (
 	"fmt"
+	"math/bits"
 	"math/rand"
 	"sort"
 	"testing"
@@ -13,11 +14,11 @@ import (
 // K-S test
 
 const (
-	repeats = 10
+	repeats = 7
 	trials  = 1000
-	tosses  = 10000
+	tosses  = 100000
 
-	neglogprob = 3
+	neglogprob = 7
 )
 
 type uniformProbTester struct {
@@ -64,57 +65,90 @@ func newSource() rand.Source {
 func TestSampling(t *testing.T) {
 	prob := 1.0 / float64(uint64(1)<<neglogprob)
 
-	fmt.Println("trials", trials, "prob", prob)
+	func() {
+		res := computeResults(newUniformProbTester(newSource(), prob).decision)
 
-	// sixtyThree := func(rnd *rand.Rand) (x int64) {
-	// 	for i := 0; i < 63; i++ {
-	// 		if rnd.Float64() < 0.5 {
-	// 			x |= int64(1) << i
-	// 		}
-	// 	}
-	// 	return
-	// }
-	// _ = sixtyThree
+		var dvals []float64
+		for i := 0; i < repeats; i++ {
+			dvals = append(dvals, tester(prob, res[i]))
+		}
+		retester("math.Float64", dvals)
+	}()
 
-	res := computeResults(newUniformProbTester(newSource(), prob).decision)
-
-	for i := 0; i < repeats; i++ {
-		tester("math.Float64", prob, res[i])
+	run := func(name string, f func() bool) {
+		res := computeResults(f)
+		var dvals []float64
+		for i := 0; i < repeats; i++ {
+			dvals = append(dvals, tester(prob, res[i]))
+		}
+		retester(name, dvals)
 	}
 
-	// 	return bits.LeadingZeros64(uint64(sixtyThree())<<1) >= neglogprob
-	// })
+	func() {
+		src := rand.New(newSource())
+		run("LeadingZeros", func() bool {
+			return bits.LeadingZeros64(uint64(src.Int63()<<1)) >= neglogprob
+		})
+	}()
 
-	// tester("bits.LeadingZeros64", prob, func() bool {
-	// 	return bits.LeadingZeros64(uint64(rand.Int63())<<1) >= neglogprob
-	// })
+	func() {
+		src := rand.New(newSource())
+		run("TrailingZeros", func() bool {
+			return bits.TrailingZeros64(uint64(src.Int63())) >= neglogprob
+		})
+	}()
 
-	// tester("bits.ExpensiveTrailingZeros64", prob, func() bool {
-	// 	return bits.TrailingZeros64(uint64(sixtyThree())) >= neglogprob
-	// })
+	func() {
+		src := rand.New(newSource())
+		run("LeadingOnes", func() bool {
+			return bits.LeadingZeros64(0^uint64(src.Int63()<<1)) >= neglogprob
+		})
+	}()
 
-	// tester("bits.TrailingZeros64", prob, func() bool {
-	// 	return bits.TrailingZeros64(uint64(rand.Int63())) >= neglogprob
-	// })
+	func() {
+		src := rand.New(newSource())
+		run("TrailingOnes", func() bool {
+			return bits.TrailingZeros64(0^uint64(src.Int63())) >= neglogprob
+		})
+	}()
 
-	// tester("bits.ExpensiveLeadingOnes64", prob, func() bool {
-	// 	return bits.LeadingZeros64(0^uint64(sixtyThree())<<1) >= neglogprob
-	// })
+	func() {
+		src := rand.New(newSource())
+		avail := 0
+		state := int64(0)
+		run("ReusedBits", func() bool {
+			r := 0
+			for {
+				if avail == 0 {
+					avail = 63
+					state = src.Int63()
+				}
+				one := state&1 == 1
+				state >>= 1
+				avail--
+				if one {
+					break
+				}
+				r++
+			}
+			return r >= neglogprob
+		})
+	}()
 
-	// tester("bits.LeadingOnes64", prob, func() bool {
-	// 	return bits.LeadingZeros64(0^uint64(rand.Int63())<<1) >= neglogprob
-	// })
-
-	// tester("bits.ExpensiveTrailingOnes64", prob, func() bool {
-	// 	return bits.TrailingZeros64(0^uint64(sixtyThree())) >= neglogprob
-	// })
-
-	// tester("bits.TrailingOnes64", prob, func() bool {
-	// 	return bits.TrailingZeros64(0^uint64(rand.Int63())) >= neglogprob
-	// })
+	func() {
+		cnt := 0
+		run("NotRandom", func() bool {
+			cnt++
+			cnt = cnt % (1 << neglogprob)
+			if cnt == 0 {
+				return true
+			}
+			return false
+		})
+	}()
 }
 
-func tester(name string, prob float64, results trialResults) float64 {
+func tester(prob float64, results trialResults) float64 {
 
 	dist := distuv.Binomial{
 		N: tosses,
@@ -140,6 +174,26 @@ func tester(name string, prob float64, results trialResults) float64 {
 		}
 	}
 
-	fmt.Println(name, "K-S single D", d, kolmogorov.K(trials, d))
+	return d
+}
+
+func retester(name string, results []float64) float64 {
+	d := 0.0
+
+	for i := 0; i < repeats; i++ {
+		val := results[i]
+		for i < repeats-1 && results[i+1] == val {
+			i++ // Scanning past duplicates
+		}
+
+		if dPlus := (float64(i+1) / repeats) - kolmogorov.K(trials, results[i]); dPlus > d {
+			d = dPlus
+		}
+		if dMinus := kolmogorov.K(trials, results[i]) - (float64(i) / repeats); dMinus > d {
+			d = dMinus
+		}
+	}
+
+	fmt.Printf("%s: K-S multi D %f%%\n", name, 100*kolmogorov.K(repeats, d))
 	return d
 }
